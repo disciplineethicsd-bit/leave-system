@@ -128,6 +128,26 @@ let calendar = null;
 let chartType = null;
 let chartPerson = null;
 
+async function submitForm() {
+    const data = {
+      name: document.getElementById("name").value,
+      leaveType: document.getElementById("leaveType").value,
+      reason: document.getElementById("reason").value,
+      startDate: document.getElementById("startDate").value,
+      endDate: document.getElementById("endDate").value,
+      days: document.getElementById("days").value
+    };
+
+    const res = await fetch(SCRIPT_URL, {
+      method: "POST",
+      body: JSON.stringify(data),
+      headers: { "Content-Type": "application/json" }
+    });
+
+    const result = await res.json();
+    alert("บันทึกสำเร็จ! แถวที่: " + result.row);
+  }
+
 /* ====== Init ====== */
 async function init(){
   await loadDropdowns();
@@ -186,7 +206,14 @@ async function submitLeave(){
   const start = document.getElementById('startDate').value;
   const end = document.getElementById('endDate').value;
   if(!name || !leaveType || !start || !end){ alert('กรุณากรอกให้ครบ'); return; }
-  const payload = {action:'addLeave', name, type: leaveType, reason, start, end};
+  const payload = {
+  action: 'addLeave',
+  name: document.getElementById('selEmployee').value,
+  type: document.getElementById('selType').value,
+  reason: document.getElementById('txtReason').value,
+  start: document.getElementById('startDate').value,
+  end: document.getElementById('endDate').value
+};
   const r = await apiPost(payload);
   if(r.result === 'success'){
     document.getElementById('formMsg').textContent = "บันทึกเรียบร้อย — จำนวนวัน: " + (r.days || '');
@@ -320,3 +347,4 @@ async function addType(){
 </script>
 </body>
 </html>
+
