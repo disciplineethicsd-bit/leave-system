@@ -1,0 +1,322 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Leave System (MVP)</title>
+
+<!-- FullCalendar -->
+<link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.css" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.js"></script>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+  body{font-family:system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", Arial; padding:16px;}
+  .nav{display:flex; gap:8px; margin-bottom:12px;}
+  .nav button{padding:8px 12px; border-radius:8px; border:1px solid #ddd; background:#fff; cursor:pointer;}
+  .section{display:none;}
+  .section.active{display:block;}
+  label{display:block;margin-top:8px;}
+  input, select, textarea{width:100%;padding:8px;border-radius:6px;border:1px solid #ccc;box-sizing:border-box;}
+  .row{display:flex; gap:8px;}
+  .row > *{flex:1;}
+  .small{width:120px;}
+  .card{padding:12px;border-radius:8px;border:1px solid #eee;background:#fafafa;}
+  #calendar{max-width:900px;margin-top:12px;}
+  .list-item{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px dashed #eee;}
+</style>
+</head>
+<body>
+  <h2>ระบบบันทึกการลา (MVP)</h2>
+  <div class="nav">
+    <button id="btnForm">📋 บันทึกการลา</button>
+    <button id="btnCalendar">📅 ปฏิทิน</button>
+    <button id="btnStats">📊 สถิติ</button>
+    <button id="btnAdmin">⚙️ จัดการข้อมูล</button>
+  </div>
+
+  <!-- 1. Form -->
+  <div id="formSection" class="section active card">
+    <h3>บันทึกการลา</h3>
+    <label>ชื่อผู้ลา
+      <select id="selEmployee"></select>
+    </label>
+    <label>ประเภทการลา
+      <select id="selType"></select>
+    </label>
+    <label>สาเหตุ
+      <textarea id="txtReason" rows="2"></textarea>
+    </label>
+    <div class="row">
+      <div>
+        <label>วันที่เริ่ม (YYYY-MM-DD)
+          <input type="date" id="startDate">
+        </label>
+      </div>
+      <div>
+        <label>วันที่สิ้นสุด
+          <input type="date" id="endDate">
+        </label>
+      </div>
+      <div style="flex:0 0 120px;">
+        <label>จำนวนวัน
+          <input id="numDays" readonly class="small">
+        </label>
+      </div>
+    </div>
+    <div style="margin-top:10px;">
+      <button id="btnSubmit">บันทึกการลา</button>
+    </div>
+    <div id="formMsg" style="margin-top:8px;color:green"></div>
+  </div>
+
+  <!-- 2. Calendar -->
+  <div id="calendarSection" class="section card">
+    <h3>ปฏิทินการลา</h3>
+    <div id="calendar"></div>
+  </div>
+
+  <!-- 3. Stats -->
+  <div id="statsSection" class="section card">
+    <h3>สถิติการลา</h3>
+    <canvas id="chartType" style="max-width:600px;"></canvas>
+    <canvas id="chartPerson" style="max-width:800px;margin-top:20px;"></canvas>
+  </div>
+
+  <!-- 4. Admin -->
+  <div id="adminSection" class="section card">
+    <h3>จัดการข้อมูล</h3>
+    <div style="display:flex;gap:12px;">
+      <div style="flex:1;">
+        <h4>พนักงาน</h4>
+        <div>
+          <input id="newEmpName" placeholder="ชื่อพนักงาน">
+          <input id="newEmpDept" placeholder="แผนก (ไม่บังคับ)">
+          <button id="addEmpBtn">เพิ่มพนักงาน</button>
+        </div>
+        <div id="empList" style="margin-top:8px;"></div>
+      </div>
+      <div style="flex:1;">
+        <h4>ประเภทการลา</h4>
+        <div>
+          <input id="newTypeName" placeholder="ประเภท เช่น ลาป่วย">
+          <input id="newTypeColor" placeholder="#rrggbb">
+          <button id="addTypeBtn">เพิ่มประเภท</button>
+        </div>
+        <div id="typeList" style="margin-top:8px;"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ====== CONFIG ====== */
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyp83FlkgXy9qpkr1Sv03QwMXRxJSHaP-NMtogHJbPlDxzW7YCKA9fKAULjbNo6GBT0/exec"; // <-- เปลี่ยนเป็น URL ของคุณ
+
+/* ====== UI helpers ====== */
+function showSection(id){
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+document.getElementById('btnForm').onclick = ()=> showSection('formSection');
+document.getElementById('btnCalendar').onclick = ()=> { showSection('calendarSection'); loadCalendar(); };
+document.getElementById('btnStats').onclick = ()=> { showSection('statsSection'); renderStats(); };
+document.getElementById('btnAdmin').onclick = ()=> { showSection('adminSection'); loadAdmin(); };
+
+let calendar = null;
+let chartType = null;
+let chartPerson = null;
+
+/* ====== Init ====== */
+async function init(){
+  await loadDropdowns();
+  document.getElementById('startDate').addEventListener('change', calculateDays);
+  document.getElementById('endDate').addEventListener('change', calculateDays);
+  document.getElementById('btnSubmit').addEventListener('click', submitLeave);
+  document.getElementById('addEmpBtn').addEventListener('click', addEmployee);
+  document.getElementById('addTypeBtn').addEventListener('click', addType);
+}
+init();
+
+/* ====== Fetch helpers ====== */
+async function apiGet(action){
+  const url = SCRIPT_URL + "?action=" + action;
+  const res = await fetch(url);
+  return res.json();
+}
+async function apiPost(body){
+  const res = await fetch(SCRIPT_URL, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  return res.json();
+}
+
+/* ====== Dropdowns for form ====== */
+async function loadDropdowns(){
+  const emps = await apiGet('employees');
+  const types = await apiGet('types');
+  const se = document.getElementById('selEmployee');
+  const st = document.getElementById('selType');
+  se.innerHTML = "<option value=''>-- เลือกชื่อ --</option>";
+  emps.forEach(e => se.insertAdjacentHTML('beforeend', `<option value="${e.name}">${e.name}${e.dept? ' ('+e.dept+')':''}</option>`));
+  st.innerHTML = "<option value=''>-- เลือกประเภท --</option>";
+  types.forEach(t => st.insertAdjacentHTML('beforeend', `<option value="${t.type}" data-color="${t.color}">${t.type}</option>`));
+}
+
+/* ====== Calculate days ====== */
+function calculateDays(){
+  const s = document.getElementById('startDate').value;
+  const e = document.getElementById('endDate').value;
+  if(s && e){
+    const sd = new Date(s);
+    const ed = new Date(e);
+    const days = Math.round((ed - sd)/(24*3600*1000)) + 1;
+    document.getElementById('numDays').value = days > 0 ? days : 0;
+  }
+}
+
+/* ====== Submit leave ====== */
+async function submitLeave(){
+  const name = document.getElementById('selEmployee').value;
+  const leaveType = document.getElementById('selType').value;
+  const reason = document.getElementById('txtReason').value;
+  const start = document.getElementById('startDate').value;
+  const end = document.getElementById('endDate').value;
+  if(!name || !leaveType || !start || !end){ alert('กรุณากรอกให้ครบ'); return; }
+  const payload = {action:'addLeave', name, type: leaveType, reason, start, end};
+  const r = await apiPost(payload);
+  if(r.result === 'success'){
+    document.getElementById('formMsg').textContent = "บันทึกเรียบร้อย — จำนวนวัน: " + (r.days || '');
+    // refresh
+    loadCalendar(); renderStats(); setTimeout(()=>document.getElementById('formMsg').textContent='',4000);
+  } else {
+    alert('ผิดพลาด: ' + JSON.stringify(r));
+  }
+}
+
+/* ====== Calendar ====== */
+async function loadCalendar(){
+  const eventsData = await apiGet('leaves');
+  // map to FullCalendar events
+  const types = await apiGet('types');
+  const colorMap = {};
+  types.forEach(t=> colorMap[t.type] = t.color);
+  const events = eventsData.map(l => {
+    // FullCalendar requires end to be exclusive for all-day events -> add 1 day
+    const endDate = new Date(l.end);
+    endDate.setDate(endDate.getDate() + 1);
+    return {
+      id: l.id,
+      title: `${l.name} — ${l.type}`,
+      start: l.start,
+      end: endDate.toISOString().split('T')[0],
+      allDay: true,
+      backgroundColor: colorMap[l.type] || '#999999'
+    };
+  });
+
+  if(!calendar){
+    const el = document.getElementById('calendar');
+    calendar = new FullCalendar.Calendar(el, {
+      initialView: 'dayGridMonth',
+      height: 650,
+      events: events
+    });
+    calendar.render();
+  } else {
+    calendar.removeAllEvents();
+    events.forEach(ev=> calendar.addEvent(ev));
+  }
+}
+
+/* ====== Stats ====== */
+async function renderStats(){
+  const leaves = await apiGet('leaves');
+  // by type
+  const typeCount = {};
+  const personCount = {};
+  leaves.forEach(l=>{
+    typeCount[l.type] = (typeCount[l.type] || 0) + (Number(l.days) || 1);
+    personCount[l.name] = (personCount[l.name] || 0) + (Number(l.days) || 1);
+  });
+  // Chart type (pie)
+  const labelsType = Object.keys(typeCount);
+  const dataType = labelsType.map(k=> typeCount[k]);
+  // Chart person (bar)
+  const labelsPerson = Object.keys(personCount);
+  const dataPerson = labelsPerson.map(k=> personCount[k]);
+
+  // destroy old charts
+  if(chartType) chartType.destroy();
+  if(chartPerson) chartPerson.destroy();
+
+  const ctx1 = document.getElementById('chartType').getContext('2d');
+  chartType = new Chart(ctx1, {
+    type: 'pie',
+    data: {labels: labelsType, datasets:[{data: dataType}]},
+    options: {responsive:true}
+  });
+
+  const ctx2 = document.getElementById('chartPerson').getContext('2d');
+  chartPerson = new Chart(ctx2, {
+    type: 'bar',
+    data: {labels: labelsPerson, datasets:[{label:'จำนวนวันลา', data: dataPerson}]},
+    options: {responsive:true, indexAxis: 'y'}
+  });
+}
+
+/* ====== Admin (employees/types) ====== */
+async function loadAdmin(){
+  const emps = await apiGet('employees');
+  const types = await apiGet('types');
+  const empList = document.getElementById('empList');
+  const typeList = document.getElementById('typeList');
+  empList.innerHTML = ""; typeList.innerHTML = "";
+
+  emps.forEach(e=>{
+    const div = document.createElement('div'); div.className = 'list-item';
+    div.innerHTML = `<div>${e.name}${e.dept? ' ('+e.dept+')':''}</div><div><button data-name="${e.name}" class="delEmp">ลบ</button></div>`;
+    empList.appendChild(div);
+  });
+  typeList.innerHTML = "";
+  types.forEach(t=>{
+    const div = document.createElement('div'); div.className = 'list-item';
+    div.innerHTML = `<div><span style="display:inline-block;width:12px;height:12px;background:${t.color};margin-right:6px;border-radius:2px;"></span>${t.type}</div><div><button data-type="${t.type}" class="delType">ลบ</button></div>`;
+    typeList.appendChild(div);
+  });
+  // attach delete events
+  document.querySelectorAll('.delEmp').forEach(b=> b.addEventListener('click', async (ev)=>{
+    const name = ev.target.getAttribute('data-name');
+    if(!confirm('ลบ '+name+' จริงหรือไม่?')) return;
+    const r = await apiPost({action:'deleteEmployee', name});
+    if(r.result === 'success'){ loadDropdowns(); loadAdmin(); } else alert(JSON.stringify(r));
+  }));
+  document.querySelectorAll('.delType').forEach(b=> b.addEventListener('click', async (ev)=>{
+    const type = ev.target.getAttribute('data-type');
+    if(!confirm('ลบ '+type+' จริงหรือไม่?')) return;
+    const r = await apiPost({action:'deleteType', type});
+    if(r.result === 'success'){ loadDropdowns(); loadAdmin(); } else alert(JSON.stringify(r));
+  }));
+}
+
+async function addEmployee(){
+  const name = document.getElementById('newEmpName').value.trim();
+  const dept = document.getElementById('newEmpDept').value.trim();
+  if(!name) return alert('กรุณากรอกชื่อ');
+  const r = await apiPost({action:'addEmployee', name, dept});
+  if(r.result === 'success'){ document.getElementById('newEmpName').value=''; document.getElementById('newEmpDept').value=''; loadDropdowns(); loadAdmin(); }
+}
+
+async function addType(){
+  const type = document.getElementById('newTypeName').value.trim();
+  const color = document.getElementById('newTypeColor').value.trim() || '#999999';
+  if(!type) return alert('กรุณากรอกประเภท');
+  const r = await apiPost({action:'addType', type, color});
+  if(r.result === 'success'){ document.getElementById('newTypeName').value=''; document.getElementById('newTypeColor').value=''; loadDropdowns(); loadAdmin(); }
+}
+</script>
+</body>
+</html>
